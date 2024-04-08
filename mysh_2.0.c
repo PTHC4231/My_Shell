@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,10 +29,21 @@ int num_builtins() {
 }
 
 // Improved read_line function to handle input from a file descriptor
+// char *read_line_fd(int fd) {
+//     char *line = NULL;
+//     size_t bufsize = 0;  // getline will allocate a buffer.
+//     getline(&line, &bufsize, fdopen(fd, "r"));
+//     return line;
+// }
+
 char *read_line_fd(int fd) {
     char *line = NULL;
     size_t bufsize = 0;  // getline will allocate a buffer.
-    getline(&line, &bufsize, fdopen(fd, "r"));
+    ssize_t read_size = getline(&line, &bufsize, fdopen(fd, "r"));
+    if (read_size == -1) {
+        free(line);  // Free the allocated buffer
+        return NULL; // Return NULL to indicate end-of-file or error
+    }
     return line;
 }
 
@@ -42,7 +52,6 @@ char **split_line_and_expand_wildcards(char *line) {
     int bufsize = 64, position = 0;
     char **tokens = malloc(bufsize * sizeof(char*));
     char *token;
-    glob_t glob_result;
 
     if (!tokens) {
         fprintf(stderr, "allocation error\n");
@@ -51,36 +60,85 @@ char **split_line_and_expand_wildcards(char *line) {
 
     token = strtok(line, DELIM);
     while (token != NULL) {
-        if (strchr(token, '*') != NULL) {
-            glob(token, GLOB_NOCHECK | GLOB_TILDE, NULL, &glob_result);
-            for (unsigned int i = 0; i < glob_result.gl_pathc; i++) {
-                tokens[position++] = strdup(glob_result.gl_pathv[i]);
-                if (position >= bufsize) {
-                    bufsize += 64;
-                    tokens = realloc(tokens, bufsize * sizeof(char*));
-                    if (!tokens) {
-                        fprintf(stderr, "allocation error\n");
-                        exit(EXIT_FAILURE);
+        if (strcmp(token, "<") == 0 || strcmp(token, ">") == 0) {
+            // Handle redirection
+            tokens[position++] = strdup(token);  // Add the redirection token
+            token = strtok(NULL, DELIM);  // Skip the redirection file name
+            if (token == NULL) {
+                fprintf(stderr, "Syntax error: Missing file name after redirection\n");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            // Expand wildcards if needed
+            glob_t glob_result;
+            if (strchr(token, '*') != NULL) {
+                glob(token, GLOB_NOCHECK | GLOB_TILDE, NULL, &glob_result);
+                for (unsigned int i = 0; i < glob_result.gl_pathc; ++i) {
+                    tokens[position++] = strdup(glob_result.gl_pathv[i]);
+                    if (position >= bufsize) {
+                        bufsize += 64;
+                        tokens = realloc(tokens, bufsize * sizeof(char*));
+                        if (!tokens) {
+                            fprintf(stderr, "allocation error\n");
+                            exit(EXIT_FAILURE);
+                        }
                     }
                 }
-            }
-            globfree(&glob_result);
-        } else {
-            tokens[position++] = strdup(token);
-            if (position >= bufsize) {
-                bufsize += 64;
-                tokens = realloc(tokens, bufsize * sizeof(char*));
-                if (!tokens) {
-                    fprintf(stderr, "allocation error\n");
-                    exit(EXIT_FAILURE);
-                }
+                globfree(&glob_result);
+            } else {
+                tokens[position++] = strdup(token);
             }
         }
+
         token = strtok(NULL, DELIM);
     }
     tokens[position] = NULL;
     return tokens;
 }
+
+// char **split_line_and_expand_wildcards(char *line) {
+//     int bufsize = 64, position = 0;
+//     char **tokens = malloc(bufsize * sizeof(char*));
+//     char *token;
+//     glob_t glob_result;
+
+//     if (!tokens) {
+//         fprintf(stderr, "allocation error\n");
+//         exit(EXIT_FAILURE);
+//     }
+
+//     token = strtok(line, DELIM);
+//     while (token != NULL) {
+//         if (strchr(token, '*') != NULL) {
+//             glob(token, GLOB_NOCHECK | GLOB_TILDE, NULL, &glob_result);
+//             for (unsigned int i = 0; i < glob_result.gl_pathc; i++) {
+//                 tokens[position++] = strdup(glob_result.gl_pathv[i]);
+//                 if (position >= bufsize) {
+//                     bufsize += 64;
+//                     tokens = realloc(tokens, bufsize * sizeof(char*));
+//                     if (!tokens) {
+//                         fprintf(stderr, "allocation error\n");
+//                         exit(EXIT_FAILURE);
+//                     }
+//                 }
+//             }
+//             globfree(&glob_result);
+//         } else {
+//             tokens[position++] = strdup(token);
+//             if (position >= bufsize) {
+//                 bufsize += 64;
+//                 tokens = realloc(tokens, bufsize * sizeof(char*));
+//                 if (!tokens) {
+//                     fprintf(stderr, "allocation error\n");
+//                     exit(EXIT_FAILURE);
+//                 }
+//             }
+//         }
+//         token = strtok(NULL, DELIM);
+//     }
+//     tokens[position] = NULL;
+//     return tokens;
+// }
 
 int execute_builtin(char **args) {
     for (int i = 0; i < num_builtins(); i++) {
@@ -147,6 +205,9 @@ int handle_pwd(char **args) {
 
 int handle_exit(char **args) {
     // Optional: Handle any arguments to exit here
+    if (isatty(STDIN_FILENO)) {
+        printf("mysh: Exiting my shell\n");
+    }
     exit(0); // Exit the shell
 }
 
@@ -206,6 +267,7 @@ void main_loop(void) {
 
         if (shouldExecute) {
             if (!execute_builtin(commandToExecute)) {
+                printf("main Loop");
                 launch_process(commandToExecute);
             }
         }
@@ -219,8 +281,22 @@ void main_loop(void) {
     }
 }
 
+// int launch_process(char **args) {
+//     int pipefd[2];
+//     int pipe_position = -1;
+//     pid_t pid1, pid2;
+//     int status;
+
+//     // Find if there's a pipeline
+//     for (int i = 0; args[i] != NULL; i++) {
+//         if (strcmp(args[i], "|") == 0) {
+//             pipe_position = i;
+//             break;
+//         }
+//     }
 int launch_process(char **args) {
-    int pipefd[2];
+    int input_fd = STDIN_FILENO; // Default to standard input
+    int output_fd = STDOUT_FILENO; // Default to standard output
     int pipe_position = -1;
     pid_t pid1, pid2;
     int status;
@@ -233,14 +309,51 @@ int launch_process(char **args) {
         }
     }
 
+    // Find if there's input or output redirection
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], "<") == 0) {
+            // Input redirection found
+            input_fd = open(args[i + 1], O_RDONLY);
+            if (input_fd < 0) {
+                perror("Input redirection");
+                return EXIT_FAILURE;
+            }
+            // Remove redirection tokens and file name from args
+            args[i] = NULL;
+            args[i + 1] = NULL;
+        } else if (strcmp(args[i], ">") == 0) {
+            // Output redirection found
+            output_fd = open(args[i + 1], O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+            if (output_fd < 0) {
+                perror("Output redirection");
+                return EXIT_FAILURE;
+            }
+            // Remove redirection tokens and file name from args
+            args[i] = NULL;
+            args[i + 1] = NULL;
+        }
+    }
+
+    // Handle pipelines
     if (pipe_position == -1) { // Handle commands without pipes
         pid1 = fork();
         if (pid1 == 0) { // Child process
+            // Redirect input if necessary
+            if (input_fd != STDIN_FILENO) {
+                dup2(input_fd, STDIN_FILENO);
+                close(input_fd);
+            }
+            // Redirect output if necessary
+            if (output_fd != STDOUT_FILENO) {
+                dup2(output_fd, STDOUT_FILENO);
+                close(output_fd);
+            }
             execvp(args[0], args);
             perror("execvp");
             exit(EXIT_FAILURE);
         }
     } else { // Handling pipelines
+        int pipefd[2];
         if (pipe(pipefd) == -1) {
             perror("pipe");
             exit(EXIT_FAILURE);
@@ -269,8 +382,13 @@ int launch_process(char **args) {
         close(pipefd[1]);
     }
 
+    // Close file descriptors if they were opened
+    if (input_fd != STDIN_FILENO) close(input_fd);
+    if (output_fd != STDOUT_FILENO) close(output_fd);
+
     // Wait for child processes to finish and update last_exit_status
     if (pipe_position == -1) { // Single command
+        //printf("waiting");
         waitpid(pid1, &status, 0);
     } else { // Pipeline
         waitpid(pid1, NULL, 0); // Wait for the first command; its status is not used for conditionals
@@ -287,6 +405,63 @@ int launch_process(char **args) {
 }
 
 // Updated main function for improved batch mode handling
+// int main(int argc, char **argv) {
+//     int fd = STDIN_FILENO;  // Default to standard input
+//     bool batchMode = false;
+
+//     if (argc > 1) {
+//         // Attempt to open the script file
+//         fd = open(argv[1], O_RDONLY);
+//         if (fd < 0) {
+//             perror("Error opening script file");
+//             return EXIT_FAILURE;
+//         }
+//         batchMode = true;
+//     }
+
+// //    main_loop();
+
+//     char *line;
+//     char **args;
+//     int status = 0;
+
+//     if (!batchMode){
+//         printf("Welcome to my shell!\n");
+//     }
+
+//     // Main loop to process each command
+//     while (true) {
+//         if (!batchMode) printf("mysh> ");
+//         line = read_line_fd(fd);
+//         if (line == NULL) break;  // End of file
+
+//         if (strcmp(line, "\n") == 0) {
+//             free(line);
+//             continue;  // Skip empty lines
+//         }
+
+
+//         args = split_line_and_expand_wildcards(line);
+//         if (args[0] != NULL) {  // Skip empty commands
+//             status = execute_builtin(args);
+//             if (!status) {
+//                 status = launch_process(args);
+//             }
+//         }
+
+//         free(line);
+//         free(args);
+//     }
+
+//     if (!batchMode) {
+//         // Print exit message if in interactive mode
+//         printf("\nExiting my shell.\n");
+//     }
+
+//     if (batchMode) close(fd);  // Close the script file if in batch mode
+//     return 0;
+// }
+
 int main(int argc, char **argv) {
     int fd = STDIN_FILENO;  // Default to standard input
     bool batchMode = false;
@@ -305,11 +480,15 @@ int main(int argc, char **argv) {
     char **args;
     int status = 0;
 
+    if (!batchMode) {
+        printf("Welcome to my shell!\n");
+    }
+
     // Main loop to process each command
     while (true) {
         if (!batchMode) printf("mysh> ");
         line = read_line_fd(fd);
-        if (!line || strcmp(line, "\n") == 0) break;  // End of file or empty line
+        if (!line) break;  // End of file
 
         args = split_line_and_expand_wildcards(line);
         if (args[0] != NULL) {  // Skip empty commands
@@ -323,6 +502,11 @@ int main(int argc, char **argv) {
         free(args);
     }
 
+    // Print exit message if in interactive mode
+    if (!batchMode) {
+        printf("\nExiting my shell.\n");
+    }
+
     if (batchMode) close(fd);  // Close the script file if in batch mode
-    return status;
+    return 0;
 }
