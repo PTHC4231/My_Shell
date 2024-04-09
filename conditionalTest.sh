@@ -1,4 +1,4 @@
-ls
+ls 
 then echo "foo succeeded"
 else echo "foo failed"
 cd nofile
