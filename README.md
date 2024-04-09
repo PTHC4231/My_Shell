@@ -252,3 +252,70 @@ run_test "which ls" "$(which ls)"
 # Clean up
 rm output.txt
 ```
+
+# Shell Implementation Test Cases
+
+
+To ensure the comprehensive validation of the shell implementation, a broad range of test cases covering both basic functionality and complex edge cases have been outlined. These tests aim to verify the shell's behavior against the assignment's requirements, ensuring it handles various scenarios gracefully. Automation of these tests is recommended to facilitate regression testing and continuous integration processes.
+
+
+## Basic Functionality Tests
+
+
+### Command Execution
+- Test the execution of basic commands, e.g., `echo Hello World`, to verify command processing.
+
+
+### Built-in Commands
+- **cd**: Test changing directories and verifying the shell updates the working directory correctly.
+- **pwd**: Ensure it correctly prints the current working directory.
+- **exit**: Confirm the shell exits cleanly when receiving the `exit` command.
+- **which**: Test with both built-in (`which cd`) and external commands (`which ls`) to verify command location functionality.
+
+
+## Wildcard Expansion Tests
+
+
+- **Wildcard in Current Directory**: Use a wildcard to match files in the current directory, e.g., `ls *.txt`.
+- **Wildcard in Subdirectory**: Test wildcard functionality in a subdirectory, e.g., `ls subdir/*.txt`.
+- **No Matches Wildcard**: Ensure the command runs without errors even when a wildcard matches no files.
+
+
+## Redirection and Pipe Tests
+
+
+- **Input Redirection**: Redirect input from a file, e.g., `sort < unsorted.txt`.
+- **Output Redirection**: Redirect output to a file, e.g., `echo Hello World > hello.txt`.
+- **Pipeline Basic**: Connect two commands with a pipe, e.g., `cat file.txt | grep "search term"`.
+- **Pipeline with Redirection**: Combine pipelines with redirection, e.g., `grep "search" < input.txt | sort > output.txt`.
+
+
+## Error Handling and Edge Cases
+
+
+- **Invalid Command**: Attempt to execute a non-existent command and expect an appropriate error message.
+- **Missing Redirection File**: Test specifying a redirection without providing a filename, e.g., `echo Hello >`.
+- **Invalid Directory for cd**: Try changing to a non-existent directory and expect an error message.
+- **Redirection File Permission**: Attempt to read from or write to a file without proper permissions.
+
+
+## Conditional Execution Tests
+
+
+- **Conditional Success (then)**: Use `then` with a command that succeeds, ensuring the subsequent command executes.
+- **Conditional Failure (else)**: Use `else` after a command that fails, to check if the subsequent command executes.
+- **Chained Conditionals**: Verify complex conditional logic by chaining multiple `then` and `else` conditions.
+
+
+## Batch and Interactive Mode Tests
+
+
+- **Batch Mode**: Execute the shell with a script file as input to verify non-interactive command execution.
+- **Interactive Mode**: Test commands interactively without arguments, checking for prompt display and exit messages.
+
+
+## Miscellaneous Tests
+
+
+- **Long Command**: Test the shell with a very long command line to ensure it handles input buffer correctly.
+- **Special Characters**: Include special characters in commands to test the shell's parsing and execution logic.
