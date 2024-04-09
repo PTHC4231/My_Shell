@@ -68,6 +68,7 @@ char **split_line_and_expand_wildcards(char *line) {
                 fprintf(stderr, "Syntax error: Missing file name after redirection\n");
                 exit(EXIT_FAILURE);
             }
+            tokens[position++] = strdup(token);  // Add the redirection file name
         } else {
             // Expand wildcards if needed
             glob_t glob_result;
@@ -95,6 +96,7 @@ char **split_line_and_expand_wildcards(char *line) {
     tokens[position] = NULL;
     return tokens;
 }
+
 
 // char **split_line_and_expand_wildcards(char *line) {
 //     int bufsize = 64, position = 0;
@@ -252,12 +254,22 @@ void main_loop(void) {
             break;
         }
 
+        printf("Input line: %s\n", line);
+
         args = split_line_and_expand_wildcards(line);
+
+        printf("Command args:\n");
+        for (int i = 0; args[i] != NULL; i++) {
+            printf("[%d]: %s\n", i, args[i]); // Debug print: Print each command argument
+        }
+
         int shouldExecute = 1; // Flag to determine command execution based on conditionals
 
         if ((strcmp(args[0], "then") == 0 && last_exit_status != 0) ||
             (strcmp(args[0], "else") == 0 && last_exit_status == 0)) {
             shouldExecute = 0; // Do not execute the command based on last_exit_status
+            printf("Conditional block skipped based on exit status: %d\n", last_exit_status); // Debug print: Print conditional block skip
+
         }
 
         char **commandToExecute = args;
@@ -266,6 +278,7 @@ void main_loop(void) {
         }
 
         if (shouldExecute) {
+            printf("Executing command: %s\n", commandToExecute[0]); // Debug print: Print command execution
             if (!execute_builtin(commandToExecute)) {
                 printf("main Loop");
                 launch_process(commandToExecute);
@@ -278,6 +291,73 @@ void main_loop(void) {
 
     if (interactive) {
         printf("\nExiting my shell.\n");
+    }
+}
+
+int launch_process(char **args) {
+    int pipe_position = -1;
+    pid_t pid1, pid2;
+    int status;
+
+    // Find if there's a pipeline
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], "|") == 0) {
+            pipe_position = i;
+            break;
+        }
+    }
+
+    if (pipe_position == -1) { // No pipeline found
+        pid1 = fork();
+        if (pid1 == 0) { // Child process
+            execvp(args[0], args);
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        } else { // Parent process
+            waitpid(pid1, &status, 0);
+            last_exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+            return last_exit_status == 0 ? 1 : 0;
+        }
+    } else { // Pipeline found
+        // Split args into two separate command lines
+        args[pipe_position] = NULL; // Null-terminate the first command line
+        char **cmd1 = args;
+        char **cmd2 = &args[pipe_position + 1];
+
+        // Create pipe
+        int pipefd[2];
+        if (pipe(pipefd) == -1) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+
+        pid1 = fork();
+        if (pid1 == 0) { // Child process for the first command
+            close(pipefd[0]); // Close read end of the pipe
+            dup2(pipefd[1], STDOUT_FILENO); // Redirect stdout to the write end of the pipe
+            close(pipefd[1]); // Close the write end of the pipe
+            execvp(cmd1[0], cmd1);
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        }
+
+        pid2 = fork();
+        if (pid2 == 0) { // Child process for the second command
+            close(pipefd[1]); // Close write end of the pipe
+            dup2(pipefd[0], STDIN_FILENO); // Redirect stdin to the read end of the pipe
+            close(pipefd[0]); // Close the read end of the pipe
+            execvp(cmd2[0], cmd2);
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        }
+
+        // Parent process
+        close(pipefd[0]); // Close both ends of the pipe
+        close(pipefd[1]);
+        waitpid(pid1, NULL, 0);
+        waitpid(pid2, &status, 0);
+        last_exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+        return last_exit_status == 0 ? 1 : 0;
     }
 }
 
@@ -294,115 +374,75 @@ void main_loop(void) {
 //             break;
 //         }
 //     }
-int launch_process(char **args) {
-    int input_fd = STDIN_FILENO; // Default to standard input
-    int output_fd = STDOUT_FILENO; // Default to standard output
-    int pipe_position = -1;
-    pid_t pid1, pid2;
-    int status;
+//     // Handle pipelines
+//     if (pipe_position == -1) { // Handle commands without pipes
+//         pid1 = fork();
+//         if (pid1 == 0) { // Child process
+//             // Redirect input if necessary
+//             if (input_fd != STDIN_FILENO) {
+//                 dup2(input_fd, STDIN_FILENO);
+//                 close(input_fd);
+//             }
+//             // Redirect output if necessary
+//             if (output_fd != STDOUT_FILENO) {
+//                 dup2(output_fd, STDOUT_FILENO);
+//                 close(output_fd);
+//             }
+//             execvp(args[0], args);
+//             perror("execvp");
+//             exit(EXIT_FAILURE);
+//         }
+//     } else { // Handling pipelines
+//         int pipefd[2];
+//         if (pipe(pipefd) == -1) {
+//             perror("pipe");
+//             exit(EXIT_FAILURE);
+//         }
+//         pid1 = fork();
+//         if (pid1 == 0) { // First child for the command before the pipe
+//             close(pipefd[0]); 
+//             dup2(pipefd[1], STDOUT_FILENO); 
+//             close(pipefd[1]);
+//             execvp(args[0], args);
+//             perror("execvp");
+//             exit(EXIT_FAILURE);
+//         }
 
-    // Find if there's a pipeline
-    for (int i = 0; args[i] != NULL; i++) {
-        if (strcmp(args[i], "|") == 0) {
-            pipe_position = i;
-            break;
-        }
-    }
+//         pid2 = fork();
+//         if (pid2 == 0) { // Second child for the command after the pipe
+//             close(pipefd[1]);
+//             dup2(pipefd[0], STDIN_FILENO);
+//             close(pipefd[0]);
+//             execvp(args[pipe_position + 1], &args[pipe_position + 1]);
+//             perror("execvp");
+//             exit(EXIT_FAILURE);
+//         }
 
-    // Find if there's input or output redirection
-    for (int i = 0; args[i] != NULL; i++) {
-        if (strcmp(args[i], "<") == 0) {
-            // Input redirection found
-            input_fd = open(args[i + 1], O_RDONLY);
-            if (input_fd < 0) {
-                perror("Input redirection");
-                return EXIT_FAILURE;
-            }
-            // Remove redirection tokens and file name from args
-            args[i] = NULL;
-            args[i + 1] = NULL;
-        } else if (strcmp(args[i], ">") == 0) {
-            // Output redirection found
-            output_fd = open(args[i + 1], O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-            if (output_fd < 0) {
-                perror("Output redirection");
-                return EXIT_FAILURE;
-            }
-            // Remove redirection tokens and file name from args
-            args[i] = NULL;
-            args[i + 1] = NULL;
-        }
-    }
+//         close(pipefd[0]);
+//         close(pipefd[1]);
+//     }
 
-    // Handle pipelines
-    if (pipe_position == -1) { // Handle commands without pipes
-        pid1 = fork();
-        if (pid1 == 0) { // Child process
-            // Redirect input if necessary
-            if (input_fd != STDIN_FILENO) {
-                dup2(input_fd, STDIN_FILENO);
-                close(input_fd);
-            }
-            // Redirect output if necessary
-            if (output_fd != STDOUT_FILENO) {
-                dup2(output_fd, STDOUT_FILENO);
-                close(output_fd);
-            }
-            execvp(args[0], args);
-            perror("execvp");
-            exit(EXIT_FAILURE);
-        }
-    } else { // Handling pipelines
-        int pipefd[2];
-        if (pipe(pipefd) == -1) {
-            perror("pipe");
-            exit(EXIT_FAILURE);
-        }
-        pid1 = fork();
-        if (pid1 == 0) { // First child for the command before the pipe
-            close(pipefd[0]); 
-            dup2(pipefd[1], STDOUT_FILENO); 
-            close(pipefd[1]);
-            execvp(args[0], args);
-            perror("execvp");
-            exit(EXIT_FAILURE);
-        }
+//     // Close file descriptors if they were opened
+//     if (input_fd != STDIN_FILENO) close(input_fd);
+//     if (output_fd != STDOUT_FILENO) close(output_fd);
 
-        pid2 = fork();
-        if (pid2 == 0) { // Second child for the command after the pipe
-            close(pipefd[1]);
-            dup2(pipefd[0], STDIN_FILENO);
-            close(pipefd[0]);
-            execvp(args[pipe_position + 1], &args[pipe_position + 1]);
-            perror("execvp");
-            exit(EXIT_FAILURE);
-        }
+//     // Wait for child processes to finish and update last_exit_status
+//     if (pipe_position == -1) { // Single command
+//         //printf("waiting");
+//         waitpid(pid1, &status, 0);
+//     } else { // Pipeline
+//         waitpid(pid1, NULL, 0); // Wait for the first command; its status is not used for conditionals
+//         waitpid(pid2, &status, 0); // Wait for the second command; its status determines the outcome
+//     }
 
-        close(pipefd[0]);
-        close(pipefd[1]);
-    }
+//     if (WIFEXITED(status)) {
+//         last_exit_status = WEXITSTATUS(status);
+//     } else {
+//         last_exit_status = 1; // Non-zero to indicate failure if not exited normally
+//     }
 
-    // Close file descriptors if they were opened
-    if (input_fd != STDIN_FILENO) close(input_fd);
-    if (output_fd != STDOUT_FILENO) close(output_fd);
-
-    // Wait for child processes to finish and update last_exit_status
-    if (pipe_position == -1) { // Single command
-        //printf("waiting");
-        waitpid(pid1, &status, 0);
-    } else { // Pipeline
-        waitpid(pid1, NULL, 0); // Wait for the first command; its status is not used for conditionals
-        waitpid(pid2, &status, 0); // Wait for the second command; its status determines the outcome
-    }
-
-    if (WIFEXITED(status)) {
-        last_exit_status = WEXITSTATUS(status);
-    } else {
-        last_exit_status = 1; // Non-zero to indicate failure if not exited normally
-    }
-
-    return last_exit_status == 0 ? 1 : 0;
-}
+//     return last_exit_status == 0 ? 1 : 0;
+// }
 
 // Updated main function for improved batch mode handling
 // int main(int argc, char **argv) {
@@ -461,6 +501,68 @@ int launch_process(char **args) {
 //     if (batchMode) close(fd);  // Close the script file if in batch mode
 //     return 0;
 // }
+// ===============================================================================
+
+// MAIN THAT WORKED 
+
+// int main(int argc, char **argv) {
+//     int fd = STDIN_FILENO;  // Default to standard input
+//     bool batchMode = false;
+
+//     if (argc > 1) {
+//         // Attempt to open the script file
+//         fd = open(argv[1], O_RDONLY);
+//         if (fd < 0) {
+//             perror("Error opening script file");
+//             return EXIT_FAILURE;
+//         }
+//         batchMode = true;
+//     }
+
+//     char *line;
+//     char **args;
+//     int status = 0;
+//     int shouldExecute = 1; // Flag to determine command execution based on conditionals
+
+//     if (!batchMode) {
+//         printf("Welcome to my shell!\n");
+//     }
+
+//     // Main loop to process each command
+//     while (true) {
+//         if (!batchMode) printf("mysh> ");
+//         line = read_line_fd(fd);
+//         if (!line) break;  // End of file
+
+//         args = split_line_and_expand_wildcards(line);
+//         if (args[0] != NULL) {  // Skip empty commands
+//             if ((strcmp(args[0], "then") == 0 && last_exit_status != 0) ||
+//                 (strcmp(args[0], "else") == 0 && last_exit_status == 0)) {
+//                 shouldExecute = 0; // Do not execute the command based on last_exit_status
+//             } else {
+//                 shouldExecute = 1; // Reset shouldExecute flag for regular commands
+//             }
+
+//             if (shouldExecute) {
+//                 status = execute_builtin(args);
+//                 if (!status) {
+//                     status = launch_process(args);
+//                 }
+//             }
+//         }
+
+//         free(line);
+//         free(args);
+//     }
+
+//     // Print exit message if in interactive mode
+//     if (!batchMode) {
+//         printf("\nExiting my shell.\n");
+//     }
+
+//     if (batchMode) close(fd);  // Close the script file if in batch mode
+//     return 0;
+// }
 
 int main(int argc, char **argv) {
     int fd = STDIN_FILENO;  // Default to standard input
@@ -476,37 +578,17 @@ int main(int argc, char **argv) {
         batchMode = true;
     }
 
-    char *line;
-    char **args;
-    int status = 0;
+    // Use main_loop function to handle command execution
+    main_loop();
 
     if (!batchMode) {
-        printf("Welcome to my shell!\n");
-    }
-
-    // Main loop to process each command
-    while (true) {
-        if (!batchMode) printf("mysh> ");
-        line = read_line_fd(fd);
-        if (!line) break;  // End of file
-
-        args = split_line_and_expand_wildcards(line);
-        if (args[0] != NULL) {  // Skip empty commands
-            status = execute_builtin(args);
-            if (!status) {
-                status = launch_process(args);
-            }
-        }
-
-        free(line);
-        free(args);
-    }
-
-    // Print exit message if in interactive mode
-    if (!batchMode) {
+        // Print exit message if in interactive mode
         printf("\nExiting my shell.\n");
     }
 
-    if (batchMode) close(fd);  // Close the script file if in batch mode
+    if (batchMode) {
+        close(fd);  // Close the script file if in batch mode
+    }
+
     return 0;
 }
