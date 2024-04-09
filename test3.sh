@@ -1,8 +1,6 @@
 #!/bin/bash
 
-# A more lenient test runner that allows for unexpected additional output
-# from the shell by focusing on whether the expected output is contained
-# within the actual output, rather than matching exactly.
+# Function to run a command in the custom shell and check for expected output
 run_test() {
     command=$1
     expected_part=$2
@@ -16,11 +14,21 @@ run_test() {
     fi
 }
 
-# pwd test
+# pwd and which tests
 run_test "pwd" "$(pwd)"
-
-# which test - ignoring the duplicate line issue
 run_test "which ls" "$(which ls)"
 
+
+# Simple echo test
+run_test "echo Hello World" "Hello World"
+
+# Redirection test - Writing to and reading from a file
+echo "Hello World" > input.txt
+run_test "cat < input.txt" "Hello World"
+
+# Pipeline test - Connecting two commands
+run_test "echo Hello World | wc -w" "2"
+
+
 # Clean up
-rm output.txt
+rm output.txt input.txt

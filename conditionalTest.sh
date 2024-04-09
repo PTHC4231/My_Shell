@@ -1,7 +1,7 @@
 ls 
-then echo "foo succeeded"
-else echo "foo failed"
+then echo "ls succeeded"
+else echo "ls failed"
 cd nofile
-then echo "bar succeeded"
-else echo "bar failed"
+then echo "cd succeeded"
+else echo "cd failed"
 else echo "else part"
